@@ -64,10 +64,15 @@ export function MessageBubble({
         />
       )}
 
-      <div className={cn("flex flex-col", isUser ? "items-end" : "items-start")}>
+      <div
+        className={cn(
+          "flex flex-col max-w-[85%] sm:max-w-[75%]",
+          isUser ? "items-end" : "items-start"
+        )}
+      >
         <div
           className={cn(
-            "min-w-[3rem] max-w-[88%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed sm:max-w-[82%]",
+            "w-fit min-w-[2.5rem] max-w-full whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed",
             isUser
               ? "rounded-br-sm bg-[var(--primary)] text-[var(--primary-foreground)]"
               : "rounded-bl-sm bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)]"

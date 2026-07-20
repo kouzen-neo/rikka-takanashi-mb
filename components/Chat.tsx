@@ -234,16 +234,19 @@ export function Chat() {
   }
 
   function send() {
-    const text = input.replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
+    const text = input.trim();
     if (!text || busy || !activeIdRef.current) return;
 
     setError(null);
     const msgs = currentMessages();
     const userMsg: ChatMsg = { id: nextId(), role: "user", content: text };
+    const assistantId = nextId();
+    // Add an empty assistant placeholder so the "thinking" indicator shows
+    // immediately while waiting for the first token.
     const history = [...msgs, userMsg];
-    updateActive(history);
+    updateActive([...history, { id: assistantId, role: "assistant", content: "" }], false);
     setInput("");
-    generate(history, nextId());
+    generate(history, assistantId);
   }
 
   /** Resend an edited user message: truncate everything after it, then regenerate. */
@@ -320,9 +323,7 @@ export function Chat() {
   }
 
   function onInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    // Strip newlines so the mobile soft keyboard's return/send key can't insert
-    // a stray line break (which made short messages render as 2 lines).
-    setInput(e.target.value.replace(/[\r\n]+/g, " "));
+    setInput(e.target.value);
   }
 
   const lastIdx = messages.length - 1;
