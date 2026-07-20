@@ -1,5 +1,7 @@
 # Rikka Takanashi Chat
 
+"MB" stands for **MY BINI**.
+
 Web chat UI for Rikka Takanashi (Love, Chunibyo & Other Delusions) backed by a local OpenAI-compatible LLM server. Mobile + desktop responsive, with streaming replies, chat history, and a chuunibyou-themed aurora background.
 
 ## Requirements
