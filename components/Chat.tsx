@@ -22,7 +22,7 @@ const THINKING_PHRASES = [
   "Berhubungan dengan Ethereal Horizon…",
   "Menyusun kontrak okult…",
   "Wicked Lord Shingan merespons…",
-  "Mou~ tunggu sebentar, desu…",
+  "Mou~ tunggu sebentar…",
 ];
 
 export function Chat() {
