@@ -37,13 +37,6 @@ export function Chat() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
-  const sessionsRef = useRef<Session[]>([]);
-  const activeIdRef = useRef<string | null>(null);
-
-  // Keep refs in sync so send/resend/retry read the latest session data
-  // (avoids stale closures when switching or creating chats).
-  useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
-  useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -84,8 +77,7 @@ export function Chat() {
     return () => clearInterval(id);
   }, [thinkingText]);
 
-  function updateActive(nextMessages: ChatMsg[], setTitle = true) {
-    const id = activeIdRef.current;
+  function writeSession(id: string, nextMessages: ChatMsg[], setTitle = true) {
     setSessions((prev) => {
       const next = prev.map((s) =>
         s.id === id
@@ -100,11 +92,6 @@ export function Chat() {
       saveSessions(next);
       return next;
     });
-  }
-
-  function currentMessages(): ChatMsg[] {
-    const s = sessionsRef.current.find((x) => x.id === activeIdRef.current);
-    return s?.messages ?? [];
   }
 
   function startNewChat() {
@@ -146,6 +133,13 @@ export function Chat() {
     if (!settings.baseUrl || !settings.model) {
       setError("Open Settings and set Base URL + Model first.");
       setSettingsOpen(true);
+      return;
+    }
+    // Lock the session we're generating into. Reads/writes below always target
+    // this id, so switching or creating chats mid-stream can't misdirect output.
+    const targetId = activeId;
+    if (!targetId) {
+      setError("No active chat. Start a new chat first.");
       return;
     }
     setError(null);
@@ -204,7 +198,8 @@ export function Chat() {
             if (delta) {
               if (thinkingText) setThinkingText(null);
               acc += delta;
-              updateActive(
+              writeSession(
+                targetId,
                 history.concat({ id: assistantId, role: "assistant", content: acc }),
                 false
               );
@@ -214,16 +209,23 @@ export function Chat() {
           }
         }
       }
-      updateActive(history.concat({ id: assistantId, role: "assistant", content: acc }));
+      writeSession(
+        targetId,
+        history.concat({ id: assistantId, role: "assistant", content: acc })
+      );
     } catch (err) {
       if ((err as any)?.name === "AbortError") {
         // Stopped by user — keep what we have.
-        updateActive(history.concat({ id: assistantId, role: "assistant", content: acc }));
+        writeSession(
+          targetId,
+          history.concat({ id: assistantId, role: "assistant", content: acc })
+        );
         return;
       }
       const errMsg = err instanceof Error ? err.message : "Unknown error";
       setError(errMsg);
-      updateActive(
+      writeSession(
+        targetId,
         history.filter((m) => !(m.id === assistantId && m.content === ""))
       );
     } finally {
@@ -235,68 +237,66 @@ export function Chat() {
 
   function send() {
     const text = input.trim();
-    if (!text || busy || !activeIdRef.current) return;
+    if (!text || busy || !activeId) return;
 
     setError(null);
-    const msgs = currentMessages();
     const userMsg: ChatMsg = { id: nextId(), role: "user", content: text };
     const assistantId = nextId();
     // Add an empty assistant placeholder so the "thinking" indicator shows
     // immediately while waiting for the first token.
-    const history = [...msgs, userMsg];
-    updateActive([...history, { id: assistantId, role: "assistant", content: "" }], false);
+    const history = [...messages, userMsg];
+    writeSession(
+      activeId,
+      [...history, { id: assistantId, role: "assistant", content: "" }]
+    );
     setInput("");
     generate(history, assistantId);
   }
 
   /** Resend an edited user message: truncate everything after it, then regenerate. */
   function resendFrom(msgId: string, newText: string) {
-    if (busy || !activeIdRef.current) return;
-    const msgs = currentMessages();
-    const idx = msgs.findIndex((m) => m.id === msgId);
+    if (busy || !activeId) return;
+    const idx = messages.findIndex((m) => m.id === msgId);
     if (idx < 0) return;
-    const history = msgs
+    const history = messages
       .slice(0, idx)
       .map((m) => (m.id === msgId ? { ...m, content: newText } : m));
     const assistantId = nextId();
-    updateActive([...history, { id: assistantId, role: "assistant", content: "" }]);
+    writeSession(activeId, [...history, { id: assistantId, role: "assistant", content: "" }]);
     generate(history, assistantId);
   }
 
   /** Retry the last assistant reply. */
   function retryLast() {
-    if (busy || !activeIdRef.current) return;
-    const msgs = currentMessages();
-    const lastUserIdx = [...msgs].reverse().findIndex((m) => m.role === "user");
+    if (busy || !activeId) return;
+    const lastUserIdx = [...messages].reverse().findIndex((m) => m.role === "user");
     if (lastUserIdx < 0) return;
-    const cut = msgs.length - 1 - lastUserIdx;
-    const history = msgs.slice(0, cut);
+    const cut = messages.length - 1 - lastUserIdx;
+    const history = messages.slice(0, cut);
     const assistantId = nextId();
-    updateActive([...history, { id: assistantId, role: "assistant", content: "" }]);
+    writeSession(activeId, [...history, { id: assistantId, role: "assistant", content: "" }]);
     generate(history, assistantId);
   }
 
   /** Undo the user's last sent message (and its reply). */
   function undoLast() {
-    if (busy || !activeIdRef.current) return;
-    const msgs = currentMessages();
-    const lastUserIdx = [...msgs].reverse().findIndex((m) => m.role === "user");
+    if (busy || !activeId) return;
+    const lastUserIdx = [...messages].reverse().findIndex((m) => m.role === "user");
     if (lastUserIdx < 0) return;
-    const cut = msgs.length - 1 - lastUserIdx;
-    updateActive(msgs.slice(0, cut));
+    const cut = messages.length - 1 - lastUserIdx;
+    writeSession(activeId, messages.slice(0, cut));
     setError(null);
   }
 
   /** Create a branch: a new session starting from the selected message. */
   function branchFrom(msgId: string) {
-    if (!activeIdRef.current) return;
-    const msgs = currentMessages();
-    const idx = msgs.findIndex((m) => m.id === msgId);
+    if (!activeId) return;
+    const idx = messages.findIndex((m) => m.id === msgId);
     if (idx < 0) return;
     const branched: Session = {
       id: `s_${Date.now()}_${Math.floor(Math.random() * 1e6)}`,
-      title: titleFrom(msgs.slice(0, idx + 1)),
-      messages: msgs.slice(0, idx + 1).map((m) => ({ ...m })),
+      title: titleFrom(messages.slice(0, idx + 1)),
+      messages: messages.slice(0, idx + 1).map((m) => ({ ...m })),
       updatedAt: Date.now(),
     };
     setSessions((prev) => {
